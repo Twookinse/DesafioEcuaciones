@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador EDO: Compostaje Comunitario</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f4f7f6;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        h1,
+        h2 {
+            color: #2c5e3b;
+            margin-top: 0;
+        }
+
+        .desc {
+            background: #e8f5e9;
+            padding: 15px;
+            border-left: 5px solid #2c5e3b;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            background: #fafafa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        input {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        button {
+            grid-column: 1 / -1;
+            padding: 12px;
+            background: #2c5e3b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background: #1e4229;
+        }
+
+        .error-msg {
+            color: #d32f2f;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        @media (max-width: 800px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 15px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            text-align: right;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background: #2c5e3b;
+            color: white;
+            text-align: center;
+        }
+
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        .interpretation {
+            background: #fff8e1;
+            padding: 15px;
+            border-left: 5px solid #ffa000;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Simulador de Compostaje Urbano Comunitario (EDO 1.er Orden)</h1>
+        <div class="desc">
+            <strong>Problema y Modelo:</strong> Simulación de la masa de abono orgánico acumulado <em>y(t)</em> [kg] en
+            función del tiempo <em>t</em> [semanas].<br>
+            <strong>EDO:</strong> <code>dy/dt = I - k·y</code> con condición inicial <code>y(0) = y₀</code>. Solución
+            Analítica: <code>y(t) = (I/k) - ((I/k) - y₀)·e^(-k·t)</code>.
+        </div>
+
+        <div id="errorBox" class="error-msg"></div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Masa inicial y₀ (kg):</label>
+                <input type="number" id="y0" value="50" min="0" step="1">
+            </div>
+            <div class="control-group">
+                <label>Ingreso semanal I (kg/sem):</label>
+                <input type="number" id="I" value="60" min="1" step="1">
+            </div>
+            <div class="control-group">
+                <label>Tasa descomposición k (1/sem):</label>
+                <input type="number" id="k" value="0.2" min="0.01" max="2" step="0.01">
+            </div>
+            <div class="control-group">
+                <label>Tamaño de paso h (semanas):</label>
+                <input type="number" id="h" value="1" min="0.1" max="5" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Tiempo total T (semanas):</label>
+                <input type="number" id="T" value="10" min="1" max="50" step="1">
+            </div>
+            <button onclick="simular()">Ejecutar Simulación (Analítica, Heun y RK4)</button>
+        </div>
+
+        <div class="charts-grid">
+            <div><canvas id="chartSol"></canvas></div>
+            <div><canvas id="chartErr"></canvas></div>
+        </div>
+
+        <div id="interpBox" class="interpretation"></div>
+
+        <h2>Tabla Comparativa por Iteraciones</h2>
+        <div class="table-container">
+            <table id="resTable">
+                <thead>
+                    <tr>
+                        <th>Paso</th>
+                        <th>Tiempo t (sem)</th>
+                        <th>Analítica (kg)</th>
+                        <th>Heun (kg)</th>
+                        <th>RK4 (kg)</th>
+                        <th>Err. Abs. Heun (kg)</th>
+                        <th>Err. Rel. Heun (%)</th>
+                        <th>Err. Abs. RK4 (kg)</th>
+                        <th>Err. Rel. RK4 (%)</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let solChart = null, errChart = null;
+
+        function simular() {
+            const y0 = parseFloat(document.getElementById('y0').value);
+            const I = parseFloat(document.getElementById('I').value);
+            const k = parseFloat(document.getElementById('k').value);
+            const h = parseFloat(document.getElementById('h').value);
+            const T = parseFloat(document.getElementById('T').value);
+            const errBox = document.getElementById('errorBox');
+
+            if (isNaN(y0) || isNaN(I) || isNaN(k) || isNaN(h) || isNaN(T) || y0 < 0 || I <= 0 || k <= 0 || h <= 0 || T <= 0 || h > T) {
+                errBox.style.display = 'block';
+                errBox.innerText = 'Error de validación: Verifique que todos los parámetros sean números positivos y que el paso h no supere el tiempo total T.';
+                return;
+            }
+            errBox.style.display = 'none';
+
+            const f = (t, y) => I - k * y;
+            const exacta = (t) => (I / k) - ((I / k) - y0) * Math.exp(-k * t);
+
+            let t = 0, yHeun = y0, yRK4 = y0, paso = 0;
+            const labels = [], dataExacta = [], dataHeun = [], dataRK4 = [], errHeun = [], errRK4 = [];
+            const tbody = document.querySelector('#resTable tbody');
+            tbody.innerHTML = '';
+
+            const nSteps = Math.round(T / h);
+            for (let i = 0; i <= nSteps; i++) {
+                t = +(i * h).toFixed(4);
+                const yEx = exacta(t);
+                const eaHeun = Math.abs(yEx - yHeun);
+                const erHeun = yEx !== 0 ? (eaHeun / Math.abs(yEx)) * 100 : 0;
+                const eaRK4 = Math.abs(yEx - yRK4);
+                const erRK4 = yEx !== 0 ? (eaRK4 / Math.abs(yEx)) * 100 : 0;
+
+                labels.push(t);
+                dataExacta.push(yEx);
+                dataHeun.push(yHeun);
+                dataRK4.push(yRK4);
+                errHeun.push(erHeun);
+                errRK4.push(erRK4);
+
+                tbody.innerHTML += `<tr>
+      <td style="text-align:center">${i}</td>
+      <td style="text-align:center">${t}</td>
+      <td>${yEx.toFixed(4)}</td>
+      <td>${yHeun.toFixed(4)}</td>
+      <td>${yRK4.toFixed(4)}</td>
+      <td>${eaHeun.toFixed(4)}</td>
+      <td>${erHeun.toFixed(4)}%</td>
+      <td>${eaRK4.toFixed(5)}</td>
+      <td>${erRK4.toFixed(5)}%</td>
+    </tr>`;
+
+                // Paso siguiente Heun
+                const k1h = f(t, yHeun);
+                const k2h = f(t + h, yHeun + h * k1h);
+                yHeun = yHeun + (h / 2) * (k1h + k2h);
+
+                // Paso siguiente RK4
+                const k1r = f(t, yRK4);
+                const k2r = f(t + h / 2, yRK4 + (h / 2) * k1r);
+                const k3r = f(t + h / 2, yRK4 + (h / 2) * k2r);
+                const k4r = f(t + h, yRK4 + h * k3r);
+                yRK4 = yRK4 + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r);
+            }
+
+            const eqMax = (I / k).toFixed(2);
+            const finalEx = dataExacta[dataExacta.length - 1].toFixed(2);
+            const finalErrH = errHeun[errHeun.length - 1].toFixed(4);
+            const finalErrR = errRK4[errRK4.length - 1].toFixed(5);
+
+            document.getElementById('interpBox').innerHTML = `
+    <strong>Interpretación de Resultados:</strong> Al cabo de <strong>${T} semanas</strong>, la comunidad acumulará <strong>${finalEx} kg</strong> de compost. El límite máximo de estabilización del sistema es de <strong>${eqMax} kg</strong>. Con un paso <em>h = ${h} sem</em>, el método <strong>RK4</strong> demostró mayor precisión con un error relativo final de <strong>${finalErrR}%</strong> frente al <strong>${finalErrH}%</strong> de Heun.`;
+
+            if (solChart) solChart.destroy();
+            if (errChart) errChart.destroy();
+
+            solChart = new Chart(document.getElementById('chartSol'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Analítica (kg)', data: dataExacta, borderColor: '#1b5e20', borderWidth: 2 },
+                        { label: 'Heun (kg)', data: dataHeun, borderColor: '#e65100', borderDash: [5, 5], borderWidth: 2 },
+                        { label: 'RK4 (kg)', data: dataRK4, borderColor: '#0d47a1', borderDash: [2, 2], borderWidth: 2 }
+                    ]
+                },
+                options: { plugins: { title: { display: true, text: 'Evolución de Masa de Compost Acumulado (kg vs semanas)' } } }
+            });
+
+            errChart = new Chart(document.getElementById('chartErr'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Error Relativo Heun (%)', data: errHeun, borderColor: '#e65100', backgroundColor: 'rgba(230,81,0,0.1)', fill: true },
+                        { label: 'Error Relativo RK4 (%)', data: errRK4, borderColor: '#0d47a1', backgroundColor: 'rgba(13,71,161,0.1)', fill: true }
+                    ]
+                },
+                options: { plugins: { title: { display: true, text: 'Comparación de Error Relativo Porcentual (%)' } } }
+            });
+        }
+
+        window.onload = simular;
+    </script>
+</body>
+
+</html>
